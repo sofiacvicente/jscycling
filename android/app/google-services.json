@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "109426878768",
+    "project_id": "jscycling-94256",
+    "storage_bucket": "jscycling-94256.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:109426878768:android:1a8295a2e81fb882b680f5",
+        "android_client_info": {
+          "package_name": "com.example.jscycling_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "109426878768-qsctl3giuhr3qfvn810meb1ji4in8nit.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAsiU7h4rAYuoxVQGlv7c0wYrG3R0taXY8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "109426878768-qsctl3giuhr3qfvn810meb1ji4in8nit.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "109426878768-nqkvgs35llfe9cfpnb67hu4t57868hog.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jscyclingApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
