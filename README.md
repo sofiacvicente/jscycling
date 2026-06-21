@@ -1,5 +1,4 @@
-A personal cycling tracker app built with Flutter and Firebase, designed as a gift for my boyfriend. Log and track rides with GPS recording, stats, history, and a performance dashboard — accessible on Android and via web.
-
+A personal cycling tracker app built with Flutter and Firebase. Log and track rides with GPS recording, stats, history, and a performance dashboard. Accessible on Android and via web.
 
 Features
 
