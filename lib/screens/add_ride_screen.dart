@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'app_theme.dart';
 import 'ride_tracker_screen.dart';
+import 'rides_notifier.dart';
 
 class AddRideScreen extends StatefulWidget {
   const AddRideScreen({super.key});
@@ -188,6 +189,7 @@ class _AddRideScreenState extends State<AddRideScreen> {
     if (photoUrl != null) rideData['photoUrl'] = photoUrl;
     if (_route.isNotEmpty) rideData['route'] = _route;
     await FirebaseFirestore.instance.collection('rides').add(rideData);
+    ridesVersion.value++;
 
     setState(() => _loading = false);
     _reset();

@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'app_theme.dart';
+import 'rides_notifier.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -39,10 +40,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2000))
       ..repeat(reverse: true);
     _loadAll();
+    ridesVersion.addListener(_onRidesChanged);
   }
+
+  void _onRidesChanged() => _loadAll();
 
   @override
   void dispose() {
+    ridesVersion.removeListener(_onRidesChanged);
     _pulseCtrl.dispose();
     super.dispose();
   }

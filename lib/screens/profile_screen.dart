@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'app_theme.dart';
+import 'rides_notifier.dart';
 import 'settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -75,10 +76,16 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     super.initState();
     _tabCtrl = TabController(length: 4, vsync: this);
     _loadAll();
+    ridesVersion.addListener(_onRidesChanged);
+  }
+
+  void _onRidesChanged() {
+    _loadRides().then((_) { _checkTrophies(); });
   }
 
   @override
   void dispose() {
+    ridesVersion.removeListener(_onRidesChanged);
     _tabCtrl.dispose();
     _nameCtrl.dispose(); _locationCtrl.dispose();
     _bikeModelCtrl.dispose(); _bikeTypeCtrl.dispose();
@@ -187,11 +194,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
-    if (picked == null) return;
-    final file = File(picked.path);
-    setState(() => _photoFile = file);
     try {
+      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 400);
+      if (picked == null) return;
+      final file = File(picked.path);
+      setState(() => _photoFile = file);
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
       final ref = FirebaseStorage.instance.ref().child('avatars/$uid.jpg');
@@ -199,15 +206,26 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       final url = await ref.getDownloadURL();
       setState(() => _photoUrl = url);
       await FirebaseFirestore.instance.doc('users/$uid').set({'photoUrl': url}, SetOptions(merge: true));
-    } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated!'), backgroundColor: Color(0xFF2A52A0)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update photo: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<void> _pickCover() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1200);
-    if (picked == null) return;
-    final file = File(picked.path);
-    setState(() => _coverFile = file);
     try {
+      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1200);
+      if (picked == null) return;
+      final file = File(picked.path);
+      setState(() => _coverFile = file);
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
       final ref = FirebaseStorage.instance.ref().child('covers/$uid.jpg');
@@ -215,7 +233,18 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       final url = await ref.getDownloadURL();
       setState(() => _coverUrl = url);
       await FirebaseFirestore.instance.doc('users/$uid').set({'coverUrl': url}, SetOptions(merge: true));
-    } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cover photo updated!'), backgroundColor: Color(0xFF2A52A0)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update cover: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   String get _initials {
@@ -281,7 +310,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
           child: _SlidingTabBar(
             controller: _tabCtrl,
-            tabs: const ['Activity', 'Badges', 'Goals', 'Bike'],
+            tabs: const ['Records', 'Badges', 'Goals', 'Bike'],
             c: c,
           ),
         ),
@@ -290,7 +319,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           child: TabBarView(
             controller: _tabCtrl,
             children: [
-              _buildActivityTab(c),
+              _buildRecordsTab(c),
               _buildBadgesTab(c),
               _buildChallengesTab(c),
               _buildBikeTab(c),
@@ -474,54 +503,144 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
   // ── TABS ──────────────────────────────────────────────────────────────────
 
-  Widget _buildActivityTab(AppColors c) {
+  Widget _buildRecordsTab(AppColors c) {
     if (_rides.isEmpty) {
       return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const Icon(Icons.directions_bike_outlined, size: 48, color: Color(0xFF7AA8F0)),
+        const Icon(Icons.emoji_events_outlined, size: 48, color: Color(0xFF7AA8F0)),
         const SizedBox(height: 12),
-        Text('No rides yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: c.textPrimary)),
-        Text('Start riding to see your activity.', style: TextStyle(fontSize: 13, color: c.textMuted)),
+        Text('No records yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: c.textPrimary)),
+        Text('Add rides to set personal bests.', style: TextStyle(fontSize: 13, color: c.textMuted)),
       ]));
     }
-    return ListView.builder(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).padding.bottom + 108),
-      itemCount: _rides.length,
-      itemBuilder: (_, i) {
-        final ride = _rides[i];
-        final dist = (ride['distance'] ?? 0).toDouble();
-        final dur = (ride['duration'] ?? 0) as int;
-        const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        String dl = '—';
-        try { final d = DateTime.parse(ride['date']); dl = '${d.day} ${mo[d.month-1]} ${d.year}'; } catch (_) {}
-        final spd = dur > 0 ? dist / (dur / 3600) : 0.0;
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: c.panelBg, borderRadius: BorderRadius.circular(18), border: Border.all(color: c.panelBorder), boxShadow: c.panelShadow),
-          child: Row(children: [
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(color: const Color(0xFF2A52A0).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF7AA8F0).withValues(alpha: 0.2))),
-              child: Center(child: Icon(Icons.directions_bike_rounded, color: const Color(0xFF7AA8F0), size: 22)),
+
+    // Compute records
+    final longestRide = _rides.fold<Map<String, dynamic>?>( null, (best, r) {
+      final d = (r['distance'] ?? 0).toDouble();
+      return (best == null || d > (best['distance'] ?? 0).toDouble()) ? r : best;
+    });
+    final fastestRide = _rides.where((r) {
+      final dur = (r['duration'] ?? 0) as int;
+      final dist = (r['distance'] ?? 0).toDouble();
+      return dur > 0 && dist > 0;
+    }).fold<Map<String, dynamic>?>(null, (best, r) {
+      final spd = (r['distance'] ?? 0).toDouble() / ((r['duration'] as int) / 3600);
+      if (best == null) return r;
+      final bestSpd = (best['distance'] ?? 0).toDouble() / ((best['duration'] as int) / 3600);
+      return spd > bestSpd ? r : best;
+    });
+    final mostElevation = _rides.fold<Map<String, dynamic>?>( null, (best, r) {
+      final e = (r['elevation'] ?? 0) as int;
+      return (best == null || e > (best['elevation'] ?? 0)) ? r : best;
+    });
+
+    // Rides per terrain
+    final terrainCounts = <String, int>{};
+    for (final r in _rides) {
+      final t = (r['terrain'] as String? ?? 'other');
+      terrainCounts[t] = (terrainCounts[t] ?? 0) + 1;
+    }
+    final favTerrain = terrainCounts.entries.fold<MapEntry<String,int>?>(null, (best, e) => (best == null || e.value > best.value) ? e : best);
+
+    // Best month (most distance)
+    final monthDist = <String, double>{};
+    for (final r in _rides) {
+      try {
+        final d = DateTime.parse(r['date'] as String);
+        final key = '${d.year}-${d.month.toString().padLeft(2,'0')}';
+        monthDist[key] = (monthDist[key] ?? 0) + (r['distance'] ?? 0).toDouble();
+      } catch (_) {}
+    }
+    final bestMonth = monthDist.entries.fold<MapEntry<String,double>?>(null, (best, e) => (best == null || e.value > best.value) ? e : best);
+
+    String fmtDate(Map<String, dynamic>? r) {
+      if (r == null) return '—';
+      const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      try { final d = DateTime.parse(r['date']); return '${d.day} ${mo[d.month-1]} ${d.year}'; } catch (_) { return '—'; }
+    }
+
+    String fmtMonthKey(String key) {
+      const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      try {
+        final parts = key.split('-');
+        final month = int.parse(parts[1]) - 1;
+        return '${mo[month]} ${parts[0]}';
+      } catch (_) { return key; }
+    }
+
+    final terrainIcons = {'road':'🛣️','mountain':'⛰️','city':'🏙️','gravel':'🪨'};
+
+    Widget recordCard(String icon, String title, String value, String sub, Color accentColor) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: c.panelBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: c.panelBorder),
+          boxShadow: c.panelShadow,
+        ),
+        child: Row(children: [
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(dl, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.textPrimary)),
-              const SizedBox(height: 4),
-              Row(children: [
-                Text('${dist.toStringAsFixed(1)} km', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: c.textPrimary)),
-                Text('  ·  ${spd.toStringAsFixed(1)} km/h', style: TextStyle(fontSize: 13, color: c.textSecondary)),
-              ]),
-            ])),
-            if (ride['terrain'] != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFF2A52A0).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(999)),
-                child: Text(ride['terrain'], style: const TextStyle(fontSize: 11, color: Color(0xFF7AA8F0))),
-              ),
-          ]),
-        );
-      },
+            child: Center(child: Text(icon, style: const TextStyle(fontSize: 22))),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(fontSize: 11, color: c.textMuted, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 2),
+            Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: c.textPrimary)),
+            if (sub.isNotEmpty) Text(sub, style: TextStyle(fontSize: 11, color: c.textSecondary)),
+          ])),
+        ]),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).padding.bottom + 108),
+      children: [
+        Text('Personal bests', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.textPrimary)),
+        const SizedBox(height: 12),
+        recordCard('🏁', 'Longest ride',
+          '${(longestRide?['distance'] ?? 0).toStringAsFixed(1)} km',
+          fmtDate(longestRide),
+          const Color(0xFF7AA8F0)),
+        const SizedBox(height: 10),
+        if (fastestRide != null) ...[
+          recordCard('⚡', 'Fastest avg speed',
+            '${((fastestRide['distance'] ?? 0).toDouble() / ((fastestRide['duration'] as int) / 3600)).toStringAsFixed(1)} km/h',
+            fmtDate(fastestRide),
+            const Color(0xFFFFB74D)),
+          const SizedBox(height: 10),
+        ],
+        if ((mostElevation?['elevation'] ?? 0) > 0) ...[
+          recordCard('⛰️', 'Most elevation in one ride',
+            '${mostElevation?['elevation'] ?? 0} m',
+            fmtDate(mostElevation),
+            const Color(0xFF81C784)),
+          const SizedBox(height: 10),
+        ],
+        if (bestMonth != null) ...[
+          recordCard('📅', 'Best month',
+            '${bestMonth.value.toStringAsFixed(0)} km',
+            fmtMonthKey(bestMonth.key),
+            const Color(0xFFBA68C8)),
+          const SizedBox(height: 10),
+        ],
+        if (favTerrain != null) ...[
+          recordCard(terrainIcons[favTerrain.key] ?? '🚴', 'Favourite terrain',
+            '${favTerrain.key[0].toUpperCase()}${favTerrain.key.substring(1)}',
+            '${favTerrain.value} rides',
+            const Color(0xFF4FC3F7)),
+          const SizedBox(height: 10),
+        ],
+        recordCard('🔥', 'Best streak',
+          '${_calcStreak()} day${_calcStreak() == 1 ? '' : 's'}',
+          'current streak',
+          const Color(0xFFFF6B35)),
+      ],
     );
   }
 
@@ -872,7 +991,7 @@ class _SlidingTabBarState extends State<_SlidingTabBar> {
           // Sliding pill
           AnimatedBuilder(
             animation: widget.controller.animation!,
-            builder: (_, __) => Positioned(
+            builder: (_, _) => Positioned(
               left: _offset * pillW + 2,
               top: 2,
               bottom: 2,
@@ -897,7 +1016,7 @@ class _SlidingTabBarState extends State<_SlidingTabBar> {
                   onTap: () => widget.controller.animateTo(i),
                   child: AnimatedBuilder(
                     animation: widget.controller.animation!,
-                    builder: (_, __) {
+                    builder: (_, _) {
                       final selected = (_offset - i).abs() < 0.5;
                       return Center(
                         child: Text(

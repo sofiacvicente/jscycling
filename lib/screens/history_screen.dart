@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'app_theme.dart';
+import 'rides_notifier.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -24,6 +25,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void initState() {
     super.initState();
     _loadRides();
+    ridesVersion.addListener(_onRidesChanged);
+  }
+
+  void _onRidesChanged() => _loadRides();
+
+  @override
+  void dispose() {
+    ridesVersion.removeListener(_onRidesChanged);
+    super.dispose();
   }
 
   Future<void> _loadRides() async {
@@ -52,7 +62,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<Map<String, dynamic>> get _filtered {
     var list = _filterTerrain == 'All'
         ? List<Map<String, dynamic>>.from(_rides)
-        : _rides.where((r) => r['terrain'] == _filterTerrain).toList();
+        : _rides.where((r) => (r['terrain'] as String? ?? '').toLowerCase() == _filterTerrain.toLowerCase()).toList();
     switch (_sortBy) {
       case 'distance':
         list.sort((a, b) => (b['distance'] ?? 0).compareTo(a['distance'] ?? 0));

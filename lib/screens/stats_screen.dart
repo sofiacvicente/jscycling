@@ -1,7 +1,9 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'app_theme.dart';
+import 'rides_notifier.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
@@ -18,6 +20,15 @@ class _StatsScreenState extends State<StatsScreen> {
   void initState() {
     super.initState();
     _loadRides();
+    ridesVersion.addListener(_onRidesChanged);
+  }
+
+  void _onRidesChanged() => _loadRides();
+
+  @override
+  void dispose() {
+    ridesVersion.removeListener(_onRidesChanged);
+    super.dispose();
   }
 
   Future<void> _loadRides() async {
@@ -232,13 +243,50 @@ class _StatsScreenState extends State<StatsScreen> {
 
   Widget _buildLineChart(AppColors c) {
     if (_sortedRides.isEmpty) return const SizedBox();
-    final distances = _sortedRides.map((r) => (r['distance'] ?? 0).toDouble()).toList().cast<double>();
+    final rides = _sortedRides;
+    final distances = rides.map((r) => (r['distance'] ?? 0).toDouble()).toList().cast<double>();
     final maxDist = distances.reduce((a, b) => a > b ? a : b);
     if (maxDist == 0) return const SizedBox();
-    return CustomPaint(
-      painter: _LineChartPainter(distances, maxDist, panelColor: c.panelBg),
-      child: const SizedBox(width: double.infinity, height: 130),
+
+    // Date labels (show first, last, and some middle ones)
+    final dates = rides.map((r) {
+      try {
+        final d = DateTime.parse(r['date'] as String? ?? '');
+        return '${d.day}/${d.month}';
+      } catch (_) { return ''; }
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 130,
+          child: CustomPaint(
+            painter: _LineChartPainter(distances, maxDist, panelColor: c.panelBg, textColor: c.textMuted),
+            child: const SizedBox(width: double.infinity, height: 130),
+          ),
+        ),
+        const SizedBox(height: 6),
+        // X-axis labels
+        if (rides.length >= 2)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: _buildDateLabels(dates, c),
+            ),
+          ),
+      ],
     );
+  }
+
+  List<Widget> _buildDateLabels(List<String> dates, AppColors c) {
+    if (dates.length <= 4) {
+      return dates.map((d) => Text(d, style: TextStyle(fontSize: 10, color: c.textMuted))).toList();
+    }
+    // Show first, ~25%, ~50%, ~75%, last
+    final indices = [0, dates.length ~/ 4, dates.length ~/ 2, (dates.length * 3) ~/ 4, dates.length - 1];
+    return indices.map((i) => Text(dates[i], style: TextStyle(fontSize: 10, color: c.textMuted))).toList();
   }
 
   Widget _buildHeatmap(AppColors c) {
@@ -283,45 +331,81 @@ class _LineChartPainter extends CustomPainter {
   final List<double> distances;
   final double maxDist;
   final Color panelColor;
+  final Color textColor;
 
-  _LineChartPainter(this.distances, this.maxDist, {required this.panelColor});
+  _LineChartPainter(this.distances, this.maxDist, {required this.panelColor, required this.textColor});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (distances.isEmpty) return;
+
+    const leftPad = 40.0;
+    const topPad = 8.0;
+    const bottomPad = 4.0;
+    final chartW = size.width - leftPad;
+    final chartH = size.height - topPad - bottomPad;
+
+    // Y-axis grid lines and labels (0, mid, max)
+    final gridPaint = Paint()
+      ..color = const Color(0xFF7AA8F0).withValues(alpha: 0.12)
+      ..strokeWidth = 1;
+    final labelStyle = ui.ParagraphStyle(textAlign: TextAlign.right, maxLines: 1);
+
+    void drawYLabel(String text, double y) {
+      final builder = ui.ParagraphBuilder(labelStyle)
+        ..pushStyle(ui.TextStyle(color: textColor, fontSize: 9));
+      builder.addText(text);
+      final para = builder.build()..layout(const ui.ParagraphConstraints(width: leftPad - 6));
+      canvas.drawParagraph(para, Offset(0, y - 6));
+    }
+
+    for (int i = 0; i <= 3; i++) {
+      final fraction = i / 3;
+      final y = topPad + chartH * (1 - fraction);
+      canvas.drawLine(Offset(leftPad, y), Offset(size.width, y), gridPaint);
+      final label = (maxDist * fraction).toStringAsFixed(0);
+      drawYLabel(label, y);
+    }
+
     if (distances.length == 1) {
-      final y = size.height - (distances.first / maxDist) * size.height * 0.9;
-      canvas.drawCircle(Offset(size.width / 2, y), 5, Paint()..color = const Color(0xFF7AA8F0));
+      final x = leftPad + chartW / 2;
+      final y = topPad + chartH * (1 - distances.first / maxDist) * 0.9;
+      canvas.drawCircle(Offset(x, y), 5, Paint()..color = const Color(0xFF7AA8F0));
       return;
     }
+
+    double xOf(int i) => leftPad + (i / (distances.length - 1)) * chartW;
+    double yOf(double d) => topPad + chartH - (d / maxDist) * chartH * 0.92;
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [const Color(0xFF7AA8F0).withValues(alpha: 0.25), const Color(0xFF7AA8F0).withValues(alpha: 0)],
+      ).createShader(Rect.fromLTWH(leftPad, topPad, chartW, chartH))
+      ..style = PaintingStyle.fill;
+
     final linePaint = Paint()
       ..color = const Color(0xFF7AA8F0)
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [const Color(0xFF7AA8F0).withValues(alpha: 0.3), const Color(0xFF7AA8F0).withValues(alpha: 0)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..style = PaintingStyle.fill;
 
     final path = Path();
     final fill = Path();
     for (int i = 0; i < distances.length; i++) {
-      final x = (i / (distances.length - 1)) * size.width;
-      final y = size.height - (distances[i] / maxDist) * size.height * 0.88;
+      final x = xOf(i);
+      final y = yOf(distances[i]);
       if (i == 0) {
         path.moveTo(x, y);
-        fill.moveTo(x, size.height);
+        fill.moveTo(x, topPad + chartH);
         fill.lineTo(x, y);
       } else {
         path.lineTo(x, y);
         fill.lineTo(x, y);
       }
     }
-    fill.lineTo(size.width, size.height);
+    fill.lineTo(xOf(distances.length - 1), topPad + chartH);
     fill.close();
     canvas.drawPath(fill, fillPaint);
     canvas.drawPath(path, linePaint);
@@ -329,10 +413,20 @@ class _LineChartPainter extends CustomPainter {
     final dot = Paint()..color = const Color(0xFF7AA8F0)..style = PaintingStyle.fill;
     final border = Paint()..color = panelColor..style = PaintingStyle.stroke..strokeWidth = 2;
     for (int i = 0; i < distances.length; i++) {
-      final x = (i / (distances.length - 1)) * size.width;
-      final y = size.height - (distances[i] / maxDist) * size.height * 0.88;
+      final x = xOf(i);
+      final y = yOf(distances[i]);
       canvas.drawCircle(Offset(x, y), 4, dot);
       canvas.drawCircle(Offset(x, y), 4, border);
+
+      // Value label on top of dot (only if not too crowded)
+      if (distances.length <= 8) {
+        final val = distances[i].toStringAsFixed(0);
+        final builder = ui.ParagraphBuilder(ui.ParagraphStyle(textAlign: TextAlign.center, maxLines: 1))
+          ..pushStyle(ui.TextStyle(color: const Color(0xFF7AA8F0), fontSize: 9, fontWeight: ui.FontWeight.w600));
+        builder.addText(val);
+        final para = builder.build()..layout(const ui.ParagraphConstraints(width: 36));
+        canvas.drawParagraph(para, Offset(x - 18, y - 18));
+      }
     }
   }
 
